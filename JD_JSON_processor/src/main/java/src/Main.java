@@ -27,6 +27,7 @@ public class Main {
             
             DataReaderCSV_IstatFormat reader = new DataReaderCSV_IstatFormat();
             Map<String, TsData> tsDataMap = reader.readData("C:\\Users\\UTENTE\\Documents\\NetBeansProjects\\JD_JSON_processor\\src\\resources\\grezziFAT.csv");
+            String directoryPathExtReg = "C:\\Users\\UTENTE\\Documents\\NetBeansProjects\\JD_JSON_processor\\src\\resources\\regr\\";
             
             // Esegui ulteriori operazioni sulla mappa tsDataMap
             //for (Map.Entry<String, TsData> entry : tsDataMap.entrySet()) {
@@ -59,25 +60,31 @@ public class Main {
                 mapper.enable(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT);
                 //crea l'oggetto corrispondente 
                 DestSpecificationsModel model=mapper.readValue(mapper.writeValueAsString(data), DestSpecificationsModel.class);
-                TSmodelSetup tsModelSetup = new TSmodelSetup(model);
+                TSmodelSetup tsModelSetup = new TSmodelSetup(model, directoryPathExtReg);
                 TramoSeatsSpecification TRAMOSEATSspec = tsModelSetup.getTsSpec();
                 
                 //for debug
-                if(data.get("series_name").equals("DIVID33"))
-                {
-                           System.out.println("\n\n_____________________SERIE___________________\n\n");
-                           System.out.println(tsDataMap.get("DIVID33"));
-                           System.out.println("\n\n_____________________JSON___________________\n\n");
-                           System.out.println();
-                           CompositeResults rslt2 = TramoSeatsProcessingFactory.process(tsDataMap.get("DIVID33"), TRAMOSEATSspec );
-                           TsData sa_data2 = rslt2.getData("sa", TsData.class);
-                           System.out.println(sa_data2);
-
-                }
+//                if(data.get("series_name").equals("DIVID33"))
+//                {
+//                           System.out.println("\n\n_____________________SERIE___________________\n\n");
+//                           System.out.println(tsDataMap.get("DIVID33"));
+//                           System.out.println("\n\n_____________________JSON___________________\n\n");
+//                           System.out.println();
+//                           CompositeResults rslt2 = TramoSeatsProcessingFactory.process(tsDataMap.get("DIVID33"), TRAMOSEATSspec );
+//                           TsData sa_data2 = rslt2.getData("sa", TsData.class);
+//                           System.out.println(sa_data2);
+//
+//                }
                 //end for debug
                 
-                ProcessingContext context = new ProcessingContext();
-                   
+                //ProcessingContext context = new ProcessingContext();
+                
+//                if(data.get("series_name").equals("C_DEFL"))
+//                {
+//                    System.out.println("debug");
+//                }    
+                
+                ProcessingContext context = tsModelSetup.getContext();
                 CompositeResults rslt = TramoSeatsProcessingFactory.process(tsDataMap.get(data.get("series_name")), TRAMOSEATSspec, context);
                 TsData sa_data = rslt.getData("sa", TsData.class);
                 System.out.println(sa_data);

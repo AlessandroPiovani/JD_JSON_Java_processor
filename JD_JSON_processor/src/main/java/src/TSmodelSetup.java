@@ -7,24 +7,34 @@ import ec.tstoolkit.Parameter;
 import ec.tstoolkit.ParameterType;
 import ec.tstoolkit.algorithm.ProcessingContext;
 import ec.tstoolkit.modelling.DefaultTransformationType;
+import ec.tstoolkit.modelling.TsVariableDescriptor;
+import ec.tstoolkit.modelling.arima.IPreprocessor;
 import ec.tstoolkit.modelling.arima.tramo.ArimaSpec;
 import ec.tstoolkit.modelling.arima.tramo.AutoModelSpec;
 import ec.tstoolkit.modelling.arima.tramo.EasterSpec;
 import ec.tstoolkit.modelling.arima.tramo.EstimateSpec;
 import ec.tstoolkit.modelling.arima.tramo.OutlierSpec;
+import ec.tstoolkit.modelling.arima.tramo.RegressionSpec;
 import ec.tstoolkit.modelling.arima.tramo.TradingDaysSpec;
+import ec.tstoolkit.modelling.arima.tramo.TramoSpecification;
 import ec.tstoolkit.modelling.arima.tramo.TransformSpec;
 import ec.tstoolkit.timeseries.Day;
 import ec.tstoolkit.timeseries.TsPeriodSelector;
 import ec.tstoolkit.timeseries.calendars.TradingDaysType;
 import ec.tstoolkit.timeseries.regression.OutlierDefinition;
 import ec.tstoolkit.timeseries.regression.OutlierType;
+import ec.tstoolkit.timeseries.regression.TsVariable;
+import ec.tstoolkit.timeseries.regression.TsVariables;
+import ec.tstoolkit.timeseries.simplets.TsData;
 import ec.tstoolkit.timeseries.simplets.TsFrequency;
 import ec.tstoolkit.timeseries.simplets.TsPeriod;
+import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import static java.util.Objects.isNull;
 import java.util.logging.Level;
@@ -52,23 +62,24 @@ public class TSmodelSetup {
         return tsSpec;
     }
     
-    public TSmodelSetup(DestSpecificationsModel model){
+    public TSmodelSetup(DestSpecificationsModel model, String directoryPathExtReg){
         this.model=model;
+        this.context = new ProcessingContext();
         if (model!=null && model.getSpec()!=null) {
             String jsonString =  model.getSpec();
-            tsSpec=TramoSeatsSpecification.fromString(model.getSpec());
-            setupTSmodel();
+            this.tsSpec=TramoSeatsSpecification.fromString(model.getSpec());
+            setupTSmodel(directoryPathExtReg);
         } else {
-            tsSpec=TramoSeatsSpecification.RSAfull;
+            this.tsSpec=TramoSeatsSpecification.RSAfull;
         }
         
-        this.context = new ProcessingContext();
     }
 
-    private void setupTSmodel() {
+    private void setupTSmodel(String directoryPathExtReg) {
         setTransform();
         setEstimate();
-        setTradingDays();
+        setTradingDays(directoryPathExtReg);
+        setUserDefinedVariables(directoryPathExtReg); //Added by Alessandro
         setEaster();
         setOutliers();
         setAutoModeling();
@@ -98,7 +109,7 @@ public class TSmodelSetup {
         */
         espec.setUbp(model.getEstimateUrfinal()); // Alessandro
         
-        
+
         espec.setTol(model.getEstimateTol());
         espec.setEML(model.isEstimateEml());
         try {
@@ -116,7 +127,7 @@ public class TSmodelSetup {
         }
     }
 
-    private void setTradingDays() {
+    private void setTradingDays(String directoryPathExtReg) {
         TradingDaysSpec tdspec = tsSpec.getTramoSpecification().getRegression().getCalendar().getTradingDays();
         if (tdspec == null) {
             tdspec = new TradingDaysSpec();
@@ -126,6 +137,10 @@ public class TSmodelSetup {
     "tradingdays.option":"None",
          */
         //Alessandro
+//        if(model.getSeriesName().equals("C_DEFL"))
+//        {
+//            System.out.println("debug");
+//        }    
         if(!isNull(model.getTradingdaysOption()))
         {
             if(model.getTradingdaysOption().equals("TradingDays"))
@@ -136,7 +151,76 @@ public class TSmodelSetup {
                 tdspec.setTradingDaysType(TradingDaysType.WorkingDays);
             }else if(model.getTradingdaysOption().equals("UserDefined"))
             {
-            
+                List<DestSpecVarFromFileInfo> userDefVarFileInfoList = model.getUserDefVarFileInfo();
+                int idxUsrDefVarTypes=0;
+                List<String> usrdefVarTypes = model.getUsrdefVarType();
+                
+        
+                if(usrdefVarTypes.size()!= model.getUserDefVarFileInfo().size())
+                {
+                    System.out.println("userdef.varFromFile.infoList and usrdef.varType have different number of arguments in JSON");
+                    //exception?
+                }    
+                
+                for(DestSpecVarFromFileInfo usrDefVar:userDefVarFileInfoList)
+                {
+                    
+                    if(usrdefVarTypes.get(idxUsrDefVarTypes).equals("Calendar"))
+                    {    
+                        Map<String, TsData> usrDefVariables = null;
+                        try {
+                            String startDate = usrDefVar.getStart();
+                            int startYear  = Integer.parseInt(startDate.substring(0, 4));
+                            int startMonth = Integer.parseInt(startDate.substring(5, 7));
+
+                            //double[] extRegDataArray = ; // external regressor data
+                            //TsData extRegData = new TsData(TsFrequency.Monthly, startYear, startMonth-1, extRegDataArray, true);
+
+                            TsFrequency freq=TsFrequency.valueOf(model.getFrequency());
+
+                            usrDefVariables = ExtRegDataReaderTSplus.readTsFile(directoryPathExtReg, usrDefVar.getContainer(), freq , startYear, startMonth-1);
+                        } catch (IOException ex) {
+                            Logger.getLogger(TSmodelSetup.class.getName()).log(Level.SEVERE, null, ex);
+                        }
+
+                        TsVariables vars = new TsVariables();
+                        List<TsVariableDescriptor> varsDescriptor = new ArrayList<TsVariableDescriptor>();
+                        String varNameForDescriptor=usrDefVar.getContainer().substring(0, usrDefVar.getContainer().lastIndexOf('.'));
+                        List<String> varNames = new ArrayList<String>();
+                        
+                        for (Map.Entry<String, TsData> variable : usrDefVariables.entrySet()) {
+                            String key = variable.getKey();
+                            TsData value = variable.getValue();
+
+                            //System.out.println("Key: " + key);
+                            //System.out.println("Value: " + value);
+
+                            TsVariable var = new TsVariable(value);
+                            var.setName(key);
+                            vars.set(key, var);
+                            varNames.add(key);
+                        }
+                        // get filename without extension, to be used as vars Name
+                        String varsName=usrDefVar.getContainer().substring(0, usrDefVar.getContainer().lastIndexOf('.'));
+                        this.context.getTsVariableManagers().set(varsName, vars);
+                    
+                        ArrayList<String> vDescStrList = new ArrayList<String>();
+                        for(String vName:varNames)
+                        {    
+                            vDescStrList.add(varNameForDescriptor+"."+vName);
+                        }    
+                        tdspec.setUserVariables( vDescStrList.toArray(new String[0]));
+                        
+                        System.out.print("External regressors loaded: ");
+                        for(String s: vDescStrList.toArray(new String[0]))
+                        {
+                            System.out.println(s);
+                        }    
+                        
+                    }
+                    idxUsrDefVarTypes++;
+                }    
+
             }else{
                 if(!model.getTradingdaysOption().equals("None") && !model.getTradingdaysOption().equals("NA"))
                 {
@@ -147,7 +231,8 @@ public class TSmodelSetup {
                 {
                     tdspec.setTradingDaysType(TradingDaysType.None);
                 }
-        }  
+            }  
+            
         } 
         // end Alessandro's part
         
@@ -159,6 +244,97 @@ public class TSmodelSetup {
         tdspec.setTest(model.isTradingdaysTest());
     }
 
+    
+    // "Added by Alessandro" block Begin
+
+    private void setUserDefinedVariables(String directoryPathExtReg) {
+        RegressionSpec regSpec = tsSpec.getTramoSpecification().getRegression();
+        if (regSpec == null) {
+            regSpec = new RegressionSpec();
+            tsSpec.getTramoSpecification().setRegression(regSpec);
+        }
+            
+        List<DestSpecVarFromFileInfo> userDefVarFileInfoList = model.getUserDefVarFileInfo();
+        int idxUsrDefVarTypes=0;
+        List<String> usrdefVarTypes = model.getUsrdefVarType();
+             
+        if(isNull(model.getUserDefVarFileInfo()))
+        {
+            return;
+        }  
+        
+        if(usrdefVarTypes.size()!= model.getUserDefVarFileInfo().size())
+        {
+            System.out.println("userdef.varFromFile.infoList and usrdef.varType have different number of arguments in JSON");
+            //exception?
+        }    
+                
+        for(DestSpecVarFromFileInfo usrDefVar:userDefVarFileInfoList)
+        {
+            
+            if(!usrdefVarTypes.get(idxUsrDefVarTypes).equals("Calendar")) //Calendar are for trading days
+            {        
+                Map<String, TsData> usrDefVariables = null;
+                try {
+                    String startDate = usrDefVar.getStart();
+                    int startYear  = Integer.parseInt(startDate.substring(0, 4));
+                    int startMonth = Integer.parseInt(startDate.substring(5, 7));
+
+
+                    TsFrequency freq=TsFrequency.valueOf(model.getFrequency());
+
+                    usrDefVariables = ExtRegDataReaderTSplus.readTsFile(directoryPathExtReg, usrDefVar.getContainer(), freq , startYear, startMonth-1);
+                    } catch (IOException ex) {
+                        Logger.getLogger(TSmodelSetup.class.getName()).log(Level.SEVERE, null, ex);
+                    }
+
+                    TsVariables vars = new TsVariables();
+                    List<TsVariableDescriptor> varsDescriptor = new ArrayList<TsVariableDescriptor>();
+                    String varNameForDescriptor=usrDefVar.getContainer().substring(0, usrDefVar.getContainer().lastIndexOf('.'));
+                    List<String> varNames = new ArrayList<String>();
+                    
+                    for (Map.Entry<String, TsData> variable : usrDefVariables.entrySet()) {
+                        String key = variable.getKey();
+                        TsData value = variable.getValue();
+
+                        TsVariable var = new TsVariable(value);
+                        var.setName(key);
+                        vars.set(key, var);
+                        varNames.add(key);
+
+                    }
+                    // get filename without extension, to be used as vars Name
+                    this.context.getTsVariableManagers().set(varNameForDescriptor, vars);
+                        
+                    TsVariableDescriptor vDesc = new TsVariableDescriptor();
+                    for(String vName:varNames)
+                    {    
+                        vDesc.setName(varNameForDescriptor+"."+vName);
+                    }    
+                    this.tsSpec.getTramoSpecification().getRegression().add(vDesc);
+                        
+            }
+            idxUsrDefVarTypes++;
+        }    
+    }
+             
+    // End "Added by Alessandro" block
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     private void setEaster() {
         EasterSpec ieast = tsSpec.getTramoSpecification().getRegression().getCalendar().getEaster();
         if (ieast == null) {
@@ -226,18 +402,35 @@ public class TSmodelSetup {
             }   
             // end Alessandro's block
             
-            if (model.isOutlierAo()) {
+            // Alessandro: Added !o.contains(OutlierType.AO) && in every if
+            if (!o.contains(OutlierType.AO) && model.isOutlierAo()) {
                 o.add(OutlierType.AO);
             }
-            if (model.isOutlierTc()) {
+            if (!o.contains(OutlierType.TC) && model.isOutlierTc()) {
                 o.add(OutlierType.TC);
             }
-            if (model.isOutlierLs()) {
+            if (!o.contains(OutlierType.LS) && model.isOutlierLs()) {
                 o.add(OutlierType.LS);
             }
-            if (model.isOutlierSo()) {
+            if (!o.contains(OutlierType.SO) && model.isOutlierSo()) {
                 o.add(OutlierType.SO);
             }
+            // Alessandro's block begin
+            if (o.contains(OutlierType.AO) && !model.isOutlierAo()) {
+                o.remove(OutlierType.AO);
+            }
+            if (o.contains(OutlierType.TC) && !model.isOutlierTc()) {
+                o.remove(OutlierType.TC);
+            }
+            if (o.contains(OutlierType.LS) && !model.isOutlierLs()) {
+                o.remove(OutlierType.LS);
+            }
+            if (o.contains(OutlierType.SO) && !model.isOutlierSo()) {
+                o.remove(OutlierType.SO);
+            }
+            
+            // end Alessandro's block
+            
             o.setEML(model.isOutlierEml());
             //o.setCriticalValue(model.getOutlierCv()); //placed before into if that controls if it should be read
             
