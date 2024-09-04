@@ -31,6 +31,9 @@ import ec.tstoolkit.timeseries.simplets.TsPeriod;
 import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -85,6 +88,8 @@ public class TSmodelSetup {
         setAutoModeling();
         setArima();
         setSeats();
+        fixOutliersAndVariablesCoefficients(); //Alessandro
+
     }
 
     private void setTransform() {
@@ -207,7 +212,7 @@ public class TSmodelSetup {
                         ArrayList<String> vDescStrList = new ArrayList<String>();
                         for(String vName:varNames)
                         {    
-                            vDescStrList.add(varNameForDescriptor+"."+vName);
+                            vDescStrList.add(varNameForDescriptor+"."+vName); //'@' instead of '.' ?
                         }    
                         tdspec.setUserVariables( vDescStrList.toArray(new String[0]));
                         
@@ -276,9 +281,14 @@ public class TSmodelSetup {
             {        
                 Map<String, TsData> usrDefVariables = null;
                 try {
-                    String startDate = usrDefVar.getStart();
-                    int startYear  = Integer.parseInt(startDate.substring(0, 4));
-                    int startMonth = Integer.parseInt(startDate.substring(5, 7));
+                     String startDate = usrDefVar.getStart();
+                     if(!isValidDate(startDate))
+                     {
+                         System.out.println(startDate+" is not correctly formatted (yyyy-MM-dd)");
+                         // exception (?)
+                     }
+                    int startYear  = Integer.parseInt(startDate.substring(0, 4)); //YYYY
+                    int startMonth = Integer.parseInt(startDate.substring(5, 7)); //MM
 
 
                     TsFrequency freq=TsFrequency.valueOf(model.getFrequency());
@@ -298,18 +308,27 @@ public class TSmodelSetup {
                         TsData value = variable.getValue();
 
                         TsVariable var = new TsVariable(value);
-                        var.setName(key);
+                        var.setName(key); 
                         vars.set(key, var);
                         varNames.add(key);
 
+                        
+                        
                     }
                     // get filename without extension, to be used as vars Name
                     this.context.getTsVariableManagers().set(varNameForDescriptor, vars);
                         
                     TsVariableDescriptor vDesc = new TsVariableDescriptor();
+                    int idx=0;
                     for(String vName:varNames)
                     {    
                         vDesc.setName(varNameForDescriptor+"."+vName);
+                        String type = model.getUsrdefVarType().get(idx);
+                        if(type!=null)
+                        {
+                            vDesc.setEffect(TsVariableDescriptor.UserComponentType.valueOf(type));
+                        }
+                        idx++;
                     }    
                     this.tsSpec.getTramoSpecification().getRegression().add(vDesc);
                         
@@ -373,7 +392,7 @@ public class TSmodelSetup {
 
                     tsSpec.getTramoSpecification().getRegression().add(new 
                                                  OutlierDefinition(outlierPeriod, type));
-
+                    
                 } catch (ParseException ex) {
                     Logger.getLogger(TSmodelSetup.class.getName()).log(Level.SEVERE, "Error in user defined outliers", ex);
                 }
@@ -450,6 +469,54 @@ public class TSmodelSetup {
         }
     }
 
+    
+    //Method added by Alessandro
+    private void fixOutliersAndVariablesCoefficients()
+    {
+//   E.G. names: "Java-Object{{AO (2020-03-01)=[D@4ff3af97, AO (2020-06-01)=[D@5680f009, AO (2007-12-01)=[D@3a4e6da6, _ts_external_3@LYM_02_0=[D@73e0c775, _ts_external_2@TDU02M_0=[D@213d5189}}"
+//   return "_ts_external_3@LYM_02_0" "_ts_external_2@TDU02M_0"
+        
+        List<String> usrDefOutlierCoefs = model.getUsrdefOutliersCoef();
+        List<String> usrDefVarCoefs     = model.getUsrdefVarCoef();
+        List<String> usrDefVarTypes     = model.getUsrdefVarType();
+
+        TsFrequency f          = TsFrequency.valueOf(model.getFrequency());
+        String[] varNames      = tsSpec.getTramoSpecification().getRegression().getRegressionVariableNames(f);
+        String[] varShortNames = tsSpec.getTramoSpecification().getRegression().getRegressionVariableShortNames(f);
+
+        
+        if(usrDefOutlierCoefs!=null && !(usrDefOutlierCoefs.size()==1 && usrDefOutlierCoefs.get(0).equals("NA")))
+        {
+            OutlierDefinition[] outs = tsSpec.getTramoSpecification().getRegression().getOutliers();
+            
+            int i=0;
+            for(OutlierDefinition outDef : outs)
+            {
+                String outName  = outDef.toString();
+                double[] outVal = {Double.parseDouble(usrDefOutlierCoefs.get(i))};
+                tsSpec.getTramoSpecification().getRegression().setFixedCoefficients(outName, outVal);                
+                i++;
+            }            
+        }
+        
+        int j=0;
+        int nOuts=tsSpec.getTramoSpecification().getRegression().getOutliersCount(); // the first nOuts variables are outliers
+        for(String vName : varNames)
+        {   if(j>=nOuts)
+            {
+                if(!(usrDefVarCoefs.size()==1 && usrDefOutlierCoefs.get(0).equals("NA")))
+                {
+                    String s=usrDefVarCoefs.get(j);
+                    double[] varVal = {Double.parseDouble(usrDefVarCoefs.get(j))};
+                    tsSpec.getTramoSpecification().getRegression().setFixedCoefficients(vName, varVal);                
+                    tsSpec.getTramoSpecification().getRegression().setCoefficients(varShortNames[j], varVal);                
+                    j++;
+                }   
+            }
+        }           
+    }        
+    
+    
     private void setAutoModeling() {
         AutoModelSpec aspec = tsSpec.getTramoSpecification().getAutoModel();
         if (aspec == null) {
@@ -498,7 +565,7 @@ public class TSmodelSetup {
         int bp = aspec.getBP();
         int bq = aspec.getBQ();
         
-        if(model.isArimaCoefEnabled() && arimaCoefs!=null && arimaCoefTypes!=null && (arimaCoefs.size() == arimaCoefTypes.size()))
+        if(model.isArimaCoefEnabled() && arimaCoefs!=null && arimaCoefTypes!=null && (arimaCoefs.size() == arimaCoefTypes.size()) && !arimaCoefTypes.get(0).equals("NA") )
         {   
             if(p>0)
             {
@@ -528,6 +595,7 @@ public class TSmodelSetup {
                     Parameter[] thetaCoefficients= new Parameter[q];
                     for(int i=p; i<q; i++)
                     {
+                        String act= arimaCoefTypes.get(i);
                         if(arimaCoefTypes.get(i).equals("Undefined"))
                         {
                             thetaCoefficients[i]=new Parameter();
@@ -627,4 +695,19 @@ public class TSmodelSetup {
         sspec.setSeasTolerance(model.getSeatsSeasTol());
         sspec.setMethod(SeatsSpecification.EstimationMethod.valueOf(model.getSeatsMethod()));
     }
+    
+    // Method added by Alessandro
+    private boolean isValidDate(String dateStr) {
+           DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        try {
+            // Tenta di fare il parsing della stringa
+            LocalDate date = LocalDate.parse(dateStr, formatter);
+            // Se la data viene parsata correttamente, la stringa è ben formattata
+            return true;
+        } catch (DateTimeParseException e) {
+            // Se viene lanciata un'eccezione, la stringa non è ben formattata
+            return false;
+        }
+    }
+    
 }

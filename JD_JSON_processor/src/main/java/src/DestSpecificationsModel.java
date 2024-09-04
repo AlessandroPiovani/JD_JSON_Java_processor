@@ -69,7 +69,7 @@ public class DestSpecificationsModel {
     @JsonProperty("usrdef.outliersDate")
     private List<String> usrdefOutliersDate;
     @JsonProperty("usrdef.outliersCoef")
-    private String usrdefOutliersCoef;
+    private List<String> usrdefOutliersCoef; //Alessandro
     @JsonProperty("usrdef.varEnabled")
     private boolean usrdefVarEnabled;
     @JsonProperty("usrdef.var")
@@ -77,7 +77,7 @@ public class DestSpecificationsModel {
     @JsonProperty("usrdef.varType")
     private List<String> usrdefVarType;
     @JsonProperty("usrdef.varCoef")
-    private String usrdefVarCoef;
+    private List<String> usrdefVarCoef; //Alessandro
     @JsonProperty("tradingdays.mauto")
     private String tradingdaysMauto;
     @JsonProperty("tradingdays.pftd")
@@ -572,11 +572,11 @@ public class DestSpecificationsModel {
         this.usrdefOutliersDate = usrdefOutliersDate;
     }
 
-    public String getUsrdefOutliersCoef() {
+    public List<String> getUsrdefOutliersCoef() {
         return usrdefOutliersCoef;
     }
 
-    public void setUsrdefOutliersCoef(String usrdefOutliersCoef) {
+    public void setUsrdefOutliersCoef(List<String> usrdefOutliersCoef) {
         this.usrdefOutliersCoef = usrdefOutliersCoef;
     }
 
@@ -604,11 +604,11 @@ public class DestSpecificationsModel {
         this.usrdefVarType = usrdefVarType;
     }
 
-    public String getUsrdefVarCoef() {
+    public List<String> getUsrdefVarCoef() { //Alessandro
         return usrdefVarCoef;
     }
 
-    public void setUsrdefVarCoef(String usrdefVarCoef) {
+    public void setUsrdefVarCoef(List<String> usrdefVarCoef) { //Alessandro
         this.usrdefVarCoef = usrdefVarCoef;
     }
 
